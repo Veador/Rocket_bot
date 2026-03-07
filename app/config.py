@@ -24,6 +24,22 @@ DEFAULT_HELP_TEMPLATE = """Available commands:
 
 Available aliases:
 {{aliases}}"""
+DEFAULT_HELP_COMMAND = "!help"
+DEFAULT_BOOK_COMMAND = "!book"
+DEFAULT_BOOK_STATUS_COMMAND = "!book status"
+DEFAULT_UNBOOK_COMMAND = "!unbook"
+
+DEFAULT_BOOKING_SUCCESS_TEMPLATE = (
+    "Environment {{env_name}} is booked by {{username}} for another {{remaining_time}}."
+)
+DEFAULT_BOOKING_BUSY_TEMPLATE = (
+    "Environment {{env_name}} is busy. Remaining time: {{remaining_time}}."
+)
+DEFAULT_BOOKING_FREE_TEMPLATE = "Environment {{env_name}} is free."
+DEFAULT_UNBOOKING_SUCCESS_TEMPLATE = "Environment {{env_name}} was unbooked by {{username}}."
+DEFAULT_UNBOOKING_ALL_SUCCESS_TEMPLATE = "All environments are successfully unbooked."
+DEFAULT_INCORRECT_ALIAS_TEMPLATE = "Incorrect alias: {{env_name}}."
+DEFAULT_INCORRECT_OR_MISSING_TIME_TEMPLATE = "Incorrect or missing time."
 
 
 @dataclass(slots=True)
@@ -75,6 +91,10 @@ class CommandsConfig:
 
     hc_version: str
     hc_help: str
+    book: str
+    book_status: str
+    unbook: str
+    unbook_all: str
 
     def __post_init__(self) -> None:
         if not self.hc_version.strip():
@@ -84,12 +104,36 @@ class CommandsConfig:
         if not self.hc_help.strip():
             raise ValueError("commands.hc_help must be a non-empty string")
         if not self.hc_help.startswith("!"):
-            raise ValueError("commands.hc_help must start with '!' (for example '!hc help')")
+            raise ValueError("commands.hc_help must start with '!' (for example '!help')")
 
-        version_prefix = self.hc_version.split(" ")[0]
-        help_prefix = self.hc_help.split(" ")[0]
-        if version_prefix != help_prefix:
-            raise ValueError("commands.hc_help must use the same command prefix as commands.hc_version")
+        if not self.book.strip():
+            raise ValueError("commands.book must be a non-empty string")
+        if not self.book.startswith("!"):
+            raise ValueError("commands.book must start with '!' (for example '!book')")
+
+        if not self.book_status.strip():
+            raise ValueError("commands.book_status must be a non-empty string")
+        if not self.book_status.startswith("!"):
+            raise ValueError("commands.book_status must start with '!' (for example '!book status')")
+
+        if not self.unbook.strip():
+            raise ValueError("commands.unbook must be a non-empty string")
+        if not self.unbook.startswith("!"):
+            raise ValueError("commands.unbook must start with '!' (for example '!unbook')")
+        if not self.unbook_all.strip():
+            raise ValueError("commands.unbook_all must be a non-empty string")
+        if not self.unbook_all.startswith("!"):
+            raise ValueError("commands.unbook_all must start with '!' (for example '!unbook all')")
+
+        book_prefix = self.book.split(" ")[0]
+        book_status_prefix = self.book_status.split(" ")[0]
+        if book_prefix != book_status_prefix:
+            raise ValueError("commands.book_status must use the same command prefix as commands.book")
+
+        unbook_prefix = self.unbook.split(" ")[0]
+        unbook_all_prefix = self.unbook_all.split(" ")[0]
+        if unbook_prefix != unbook_all_prefix:
+            raise ValueError("commands.unbook_all must use the same command prefix as commands.unbook")
 
 
 @dataclass(slots=True)
@@ -109,6 +153,35 @@ class HelpConfig:
     def __post_init__(self) -> None:
         if not isinstance(self.template, str) or not self.template.strip():
             raise ValueError("help.template must be a non-empty string")
+
+
+@dataclass(slots=True)
+class MessagesConfig:
+    """User-facing message templates for booking-related replies."""
+
+    booking_success: str = DEFAULT_BOOKING_SUCCESS_TEMPLATE
+    booking_busy: str = DEFAULT_BOOKING_BUSY_TEMPLATE
+    booking_free: str = DEFAULT_BOOKING_FREE_TEMPLATE
+    unbooking_success: str = DEFAULT_UNBOOKING_SUCCESS_TEMPLATE
+    unbooking_all_success: str = DEFAULT_UNBOOKING_ALL_SUCCESS_TEMPLATE
+    incorrect_alias: str = DEFAULT_INCORRECT_ALIAS_TEMPLATE
+    incorrect_or_missing_time: str = DEFAULT_INCORRECT_OR_MISSING_TIME_TEMPLATE
+
+    def __post_init__(self) -> None:
+        if not self.booking_success.strip():
+            raise ValueError("messages.booking_success must be a non-empty string")
+        if not self.booking_busy.strip():
+            raise ValueError("messages.booking_busy must be a non-empty string")
+        if not self.booking_free.strip():
+            raise ValueError("messages.booking_free must be a non-empty string")
+        if not self.unbooking_success.strip():
+            raise ValueError("messages.unbooking_success must be a non-empty string")
+        if not self.unbooking_all_success.strip():
+            raise ValueError("messages.unbooking_all_success must be a non-empty string")
+        if not self.incorrect_alias.strip():
+            raise ValueError("messages.incorrect_alias must be a non-empty string")
+        if not self.incorrect_or_missing_time.strip():
+            raise ValueError("messages.incorrect_or_missing_time must be a non-empty string")
 
 
 @dataclass(slots=True)
@@ -145,6 +218,7 @@ class BotConfig:
     commands: CommandsConfig
     environments: dict[str, EnvironmentConfig]
     help: HelpConfig
+    messages: MessagesConfig
     database: DatabaseConfig
     logging: LoggingConfig
 
@@ -204,6 +278,10 @@ def load_config(config_path: str | Path = DEFAULT_CONFIG_PATH) -> BotConfig:
     if not isinstance(help_raw_any, dict):
         raise ValueError("help must be a mapping")
 
+    messages_raw_any = raw.get("messages", {})
+    if not isinstance(messages_raw_any, dict):
+        raise ValueError("messages must be a mapping")
+
     auth_token_env = _require_string(rocketchat_raw, "auth_token_env", "rocketchat")
     auth_token = os.getenv(auth_token_env, "")
     if not auth_token:
@@ -230,17 +308,62 @@ def load_config(config_path: str | Path = DEFAULT_CONFIG_PATH) -> BotConfig:
     hc_version_command = _require_string(commands_raw, "hc_version", "commands")
     hc_help_command = _optional_string(commands_raw, "hc_help", "commands")
     if hc_help_command is None:
-        hc_help_command = f"{hc_version_command.split(' ')[0]} help"
+        hc_help_command = DEFAULT_HELP_COMMAND
+    book_command = _optional_string(commands_raw, "book", "commands") or DEFAULT_BOOK_COMMAND
+    book_status_command = (
+        _optional_string(commands_raw, "book_status", "commands")
+        or f"{book_command.split(' ')[0]} status"
+    )
+    unbook_command = _optional_string(commands_raw, "unbook", "commands") or DEFAULT_UNBOOK_COMMAND
+    unbook_all_command = (
+        _optional_string(commands_raw, "unbook_all", "commands")
+        or f"{unbook_command} all"
+    )
 
     commands = CommandsConfig(
         hc_version=hc_version_command,
         hc_help=hc_help_command,
+        book=book_command,
+        book_status=book_status_command,
+        unbook=unbook_command,
+        unbook_all=unbook_all_command,
     )
 
     environments = _environment_mapping(environments_raw, section_name="environments")
 
     help_config = HelpConfig(
         template=_optional_string(help_raw_any, "template", "help") or DEFAULT_HELP_TEMPLATE,
+    )
+
+    messages_config = MessagesConfig(
+        booking_success=(
+            _optional_string(messages_raw_any, "booking_success", "messages")
+            or DEFAULT_BOOKING_SUCCESS_TEMPLATE
+        ),
+        booking_busy=(
+            _optional_string(messages_raw_any, "booking_busy", "messages")
+            or DEFAULT_BOOKING_BUSY_TEMPLATE
+        ),
+        booking_free=(
+            _optional_string(messages_raw_any, "booking_free", "messages")
+            or DEFAULT_BOOKING_FREE_TEMPLATE
+        ),
+        unbooking_success=(
+            _optional_string(messages_raw_any, "unbooking_success", "messages")
+            or DEFAULT_UNBOOKING_SUCCESS_TEMPLATE
+        ),
+        unbooking_all_success=(
+            _optional_string(messages_raw_any, "unbooking_all_success", "messages")
+            or DEFAULT_UNBOOKING_ALL_SUCCESS_TEMPLATE
+        ),
+        incorrect_alias=(
+            _optional_string(messages_raw_any, "incorrect_alias", "messages")
+            or DEFAULT_INCORRECT_ALIAS_TEMPLATE
+        ),
+        incorrect_or_missing_time=(
+            _optional_string(messages_raw_any, "incorrect_or_missing_time", "messages")
+            or DEFAULT_INCORRECT_OR_MISSING_TIME_TEMPLATE
+        ),
     )
 
     database = DatabaseConfig(
@@ -256,6 +379,7 @@ def load_config(config_path: str | Path = DEFAULT_CONFIG_PATH) -> BotConfig:
         commands=commands,
         environments=environments,
         help=help_config,
+        messages=messages_config,
         database=database,
         logging=logging,
     )
@@ -360,3 +484,7 @@ if __name__ == "__main__":
     print(f"Rocket.Chat: {config.rocketchat.base_url}")
     print(f"Version command: {config.commands.hc_version}")
     print(f"Help command: {config.commands.hc_help}")
+    print(f"Book command: {config.commands.book}")
+    print(f"Book status command: {config.commands.book_status}")
+    print(f"Unbook command: {config.commands.unbook}")
+    print(f"Unbook all command: {config.commands.unbook_all}")

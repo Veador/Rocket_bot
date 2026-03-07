@@ -1,7 +1,7 @@
 [project]
-name = "rocket-bot-poc"
+name = "rocket-bot"
 version = "0.1.0"
-description = "Minimal Python PoC for a Rocket.Chat bot"
+description = "Minimal Python bot for Rocket.Chat"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

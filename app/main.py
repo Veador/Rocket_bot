@@ -1,4 +1,4 @@
-"""Rocket.Chat bot PoC entrypoint.
+"""Rocket.Chat bot entrypoint.
 
 Startup flow:
 1. Load config
@@ -6,11 +6,12 @@ Startup flow:
 3. Start realtime listener
 
 Command flow:
-1. Parse `!hc ...` command text using config-driven parser
-2. For `!hc help`: render config template and reply in thread
+1. Parse command text using config-driven parser
+2. For `!help`: render config template and reply in thread
 3. For `!hc version <alias>`: resolve alias -> `_hc` URL
 4. Fetch `_hc` version payload and save success/error into SQLite
-5. Post thread reply under original message
+5. For booking commands: execute booking service and render configured templates
+6. Post thread reply under original message
 """
 
 from __future__ import annotations
@@ -22,8 +23,9 @@ import sys
 
 import httpx
 
+from app.booking_service import BookingService, BookingServiceResult
 from app.commands import CommandParser, ParsedCommand
-from app.config import DEFAULT_CONFIG_PATH, load_config
+from app.config import DEFAULT_CONFIG_PATH, MessagesConfig, load_config
 from app.health import fetch_hc_version, format_hc_reply_text
 from app.help_text import render_help_message
 from app.rc_rest import RocketChatRestClient, RocketChatRestError
@@ -55,6 +57,7 @@ async def run(config_path: str | Path = DEFAULT_CONFIG_PATH) -> None:
     parser = CommandParser.from_config(config)
     rest_client = RocketChatRestClient.from_rocketchat_config(config.rocketchat)
     listener = RocketChatRealtimeListener.from_config_file(config_path)
+    booking_service = BookingService.from_config(config, repository=repository)
 
     async with httpx.AsyncClient() as http_client:
         async def handle_command(event: HcCommandEvent) -> None:
@@ -63,7 +66,9 @@ async def run(config_path: str | Path = DEFAULT_CONFIG_PATH) -> None:
                     event=event,
                     parser=parser,
                     help_template=config.help.template,
+                    booking_messages=config.messages,
                     repository=repository,
+                    booking_service=booking_service,
                     rest_client=rest_client,
                     http_client=http_client,
                 )
@@ -79,17 +84,20 @@ async def _handle_command_message(
     event: HcCommandEvent,
     parser: CommandParser,
     help_template: str,
+    booking_messages: MessagesConfig,
     repository: HealthResultRepository,
+    booking_service: BookingService,
     rest_client: RocketChatRestClient,
     http_client: httpx.AsyncClient,
 ) -> None:
-    """Handle one incoming `!hc ...` command message."""
+    """Handle one incoming command message."""
     message = event.message
     logger.info(
-        "Received message id=%s room=%s sender=%s text=%r",
+        "Received message id=%s room=%s sender=%s username=%s text=%r",
         message.message_id,
         message.room_id,
         message.sender_id,
+        message.sender_username,
         message.text,
     )
 
@@ -103,6 +111,10 @@ async def _handle_command_message(
             template=help_template,
             version_command=parser.command_text,
             help_command=parser.help_command_text,
+            book_command=parser.book_command_text,
+            book_status_command=parser.book_status_command_text,
+            unbook_command=parser.unbook_command_text,
+            unbook_all_command=parser.unbook_all_command_text,
             environments=parser.environments,
         )
         await _post_thread_reply_safe(
@@ -118,6 +130,16 @@ async def _handle_command_message(
             parsed=parsed,
             message=message,
             repository=repository,
+            rest_client=rest_client,
+        )
+        return
+
+    if parsed.kind in {"book", "book_status", "unbook", "unbook_all"}:
+        await _handle_booking_command(
+            parsed=parsed,
+            message=message,
+            booking_service=booking_service,
+            booking_messages=booking_messages,
             rest_client=rest_client,
         )
         return
@@ -187,6 +209,102 @@ async def _handle_command_error(
         room_id=message.room_id,
         thread_message_id=message.message_id,
         text=_format_alias_error_reply(parsed),
+    )
+
+
+async def _handle_booking_command(
+    *,
+    parsed: ParsedCommand,
+    message: IncomingMessage,
+    booking_service: BookingService,
+    booking_messages: MessagesConfig,
+    rest_client: RocketChatRestClient,
+) -> None:
+    """Execute booking operation and post one thread reply."""
+    if parsed.kind == "book":
+        result = await booking_service.book(
+            alias=parsed.alias,
+            username=message.sender_username,
+            duration=parsed.duration or "",
+        )
+    elif parsed.kind == "book_status":
+        result = await booking_service.book_status(alias=parsed.alias)
+    elif parsed.kind == "unbook_all":
+        result = await booking_service.unbook_all(
+            username=message.sender_username,
+        )
+    else:
+        result = await booking_service.unbook(
+            alias=parsed.alias,
+            username=message.sender_username,
+        )
+
+    reply_text = _format_booking_reply(
+        result=result,
+        booking_messages=booking_messages,
+        fallback_alias=parsed.alias,
+    )
+    await _post_thread_reply_safe(
+        rest_client=rest_client,
+        room_id=message.room_id,
+        thread_message_id=message.message_id,
+        text=reply_text,
+    )
+
+
+def _format_booking_reply(
+    *,
+    result: BookingServiceResult,
+    booking_messages: MessagesConfig,
+    fallback_alias: str,
+) -> str:
+    """Format booking reply text using config templates only."""
+    if result.action == "status" and result.outcome == "booked":
+        template = booking_messages.booking_busy
+    elif result.outcome == "booked":
+        template = booking_messages.booking_success
+    elif result.outcome == "busy":
+        template = booking_messages.booking_busy
+    elif result.outcome == "free":
+        template = booking_messages.booking_free
+    elif result.outcome == "unbooked":
+        template = booking_messages.unbooking_success
+    elif result.outcome == "unbooked_all":
+        template = booking_messages.unbooking_all_success
+    elif result.outcome == "incorrect_or_missing_time":
+        template = booking_messages.incorrect_or_missing_time
+    else:
+        template = booking_messages.incorrect_alias
+
+    env_name = result.env_name or fallback_alias or "-"
+    duration_text = (result.remaining_time or "").strip()
+    return _render_message_template(
+        template=template,
+        env_name=env_name,
+        time=duration_text,
+        username=result.username or "",
+        remaining_time=duration_text,
+        count=str(result.affected_count or 0),
+    )
+
+
+def _render_message_template(
+    *,
+    template: str,
+    env_name: str,
+    time: str,
+    username: str,
+    remaining_time: str,
+    count: str,
+) -> str:
+    """Render simple `{{placeholder}}` tokens without external template engine."""
+    return (
+        template.replace("{{env_name}}", env_name)
+        .replace("{{time}}", time)
+        .replace("{{username}}", username)
+        .replace("{{remaining_time}}", remaining_time)
+        .replace("{{count}}", count)
+        .strip()
     )
 
 

@@ -1,6 +1,6 @@
-# Rocket.Chat HC Bot PoC
+# Rocket.Chat HC Bot
 
-Minimal Python bot PoC for Rocket.Chat.
+Minimal Python bot for Rocket.Chat.
 
 ## What the bot does
 
@@ -8,9 +8,14 @@ Minimal Python bot PoC for Rocket.Chat.
 - Listens for new messages in configured rooms
 - Ignores bot's own messages by default (configurable)
 - Processes only root command messages (thread replies are ignored)
-- Processes only messages starting with `!hc`
-- Supports `!hc help`
+- Processes only messages starting with configured command prefixes (`!hc`, `!help`, `!book`, `!unbook`)
+- Supports `!help`
 - Supports `!hc version <alias>`
+- Supports `!book <alias> <time>` (`Xm`, `Xh`, `Xd`; min `15m`, max `7d`)
+- Supports `!book status <alias>`
+- Supports `!unbook <alias>`
+- Supports `!unbook all`
+- Shows remaining booking time in replies as `d h min` (for example `2h 5min`)
 - Resolves `<alias>` to configured environment (`name` + `healthcheck URL`)
 - Performs HTTP GET to healthcheck URL
 - Reads only:
@@ -23,7 +28,6 @@ Minimal Python bot PoC for Rocket.Chat.
 
 ## What it does not do yet
 
-- No command set beyond `!hc help` and `!hc version <alias>`
 - No Docker setup
 - No tests
 - No metrics/monitoring
@@ -34,6 +38,8 @@ Minimal Python bot PoC for Rocket.Chat.
 
 ```text
 app/
+  booking_service.py # booking business logic by URL key
+  booking_time.py    # booking duration parse/format helpers
   main.py          # app wiring and runtime flow
   config.py        # YAML config loading + validation
   commands.py      # command parsing and alias resolution
@@ -74,13 +80,18 @@ Edit `config/bot_config.yaml`:
 - `rocketchat.websocket_url`: websocket endpoint (or derivable)
 - `rocketchat.room_filters`: room IDs to subscribe to
 - `commands.hc_version`: version command text (default `!hc version`)
-- `commands.hc_help`: help command text (default `!hc help`)
+- `commands.hc_help`: help command text (default `!help`)
+- `commands.book`: booking command text (default `!book`)
+- `commands.book_status`: booking status command text (default `!book status`)
+- `commands.unbook`: unbooking command text (default `!unbook`)
+- `commands.unbook_all`: bulk unbooking command text (default `!unbook all`)
 - `help.template`: help reply template with placeholders `{{commands}}` and `{{aliases}}`
+- `messages.*`: booking-related user-facing templates (no hardcoded texts)
 - `environments`: alias -> environment mapping (`name` + `url`)
 - `database.sqlite_path`: SQLite file path
 - `logging.level`: log level
 
-If you run the bot using your own Rocket.Chat account for local PoC testing, set
+If you run the bot using your own Rocket.Chat account for local testing, set
 `rocketchat.ignore_own_messages: false` so your own `!hc version <alias>` messages are processed.
 
 Environment config example:
@@ -89,17 +100,17 @@ Environment config example:
 environments:
   t4:
     name: "Test"
-    url: "https://example.com/healthcheck"
+    url: "https://example.com/_hc"
   test4:
     name: "Test"
-    url: "https://example.com/healthcheck"
+    url: "https://example.com/_hc"
 ```
 
 Legacy backward-compatible form is still supported:
 
 ```yaml
 environments:
-  t4: "https://example.com/healthcheck"
+  t4: "https://example.com/_hc"
 ```
 
 Help template example:
@@ -112,6 +123,19 @@ help:
 
     Available aliases:
     {{aliases}}
+```
+
+Booking templates example:
+
+```yaml
+messages:
+  booking_success: "{{env_name}} is booked by {{username}} for {{remaining_time}}."
+  booking_busy: "{{env_name}} is busy. Remaining: {{remaining_time}}."
+  booking_free: "{{env_name}} is free."
+  unbooking_success: "{{env_name}} unbooked by {{username}}."
+  unbooking_all_success: "All environments are successfully unbooked."
+  incorrect_alias: "Incorrect alias: {{env_name}}."
+  incorrect_or_missing_time: "Incorrect or missing time."
 ```
 
 ## Required environment variables
@@ -143,7 +167,23 @@ python -m app.main config/bot_config.yaml
 ```
 
 ```text
-!hc help
+!help
+```
+
+```text
+!book t4 2h
+```
+
+```text
+!book status t4
+```
+
+```text
+!unbook t4
+```
+
+```text
+!unbook all
 ```
 
 If alias is unknown, bot replies:
@@ -156,8 +196,12 @@ Help command reply example:
 
 ```text
 Available commands:
-!hc help
+!help
 !hc version <alias>
+!book <alias> <time>
+!book status <alias>
+!unbook <alias>
+!unbook all
 
 Available aliases:
 <list of aliases>
@@ -169,7 +213,7 @@ Successful reply format:
 Environment: Test
 Branch: branch
 Commit: hash
-[Healthcheck link](https://example.com/healthcheck)
+[Healthcheck link](https://example.com/_hc)
 ```
 
 If tag exists:
@@ -179,7 +223,7 @@ Environment: Test
 Branch: branch
 Commit: hash
 Tag: v1.2.3
-[Healthcheck link](https://example.com/healthcheck)
+[Healthcheck link](https://example.com/_hc)
 ```
 
 ## SQLite data saved
@@ -203,7 +247,16 @@ Persistence behavior:
 - On unchanged state refresh, bot updates `alias`, `hc_timestamp`, and `fetched_at`.
 - If state changed for that URL, bot inserts a new history row.
 
-## Known PoC limitations
+Table: `booking_current`
+- Current booking state by URL (single upserted row per URL).
+- Fields: `url`, `username`, `status`, `booked_at`, `booked_until`.
+
+Table: `booking_history`
+- Append-only successful booking actions.
+- Fields: `username`, `url`, `action_status`, `action_time`.
+- Automatic expiration cleanup does not write `unbooked` history rows.
+
+## Known limitations
 
 - Realtime subscription currently depends on configured `room_filters`
 - Strict command matching only (no fuzzy parsing)

@@ -1,14 +1,12 @@
-"""Command parsing for the Rocket.Chat PoC bot.
+"""Command parsing for the Rocket.Chat bot.
 
 Supported format:
-    !hc help
+    !help
     !hc version <alias>
-
-Behavior:
-- command texts come from config (`commands.hc_version`, `commands.hc_help`)
-- aliases are resolved from config (`environments`)
-- unsupported commands return None
-- unknown alias returns parsed command object with error message
+    !book <alias> <time>
+    !book status <alias>
+    !unbook <alias>
+    !unbook all
 """
 
 from __future__ import annotations
@@ -24,10 +22,11 @@ from app.config import BotConfig, DEFAULT_CONFIG_PATH, EnvironmentConfig, load_c
 class ParsedCommand:
     """Parsed command result for command handler consumption."""
 
-    kind: Literal["help", "version"]
+    kind: Literal["help", "version", "book", "book_status", "unbook", "unbook_all"]
     command: str
     alias: str
     url: str | None
+    duration: str | None = None
     environment_name: str | None = None
     error_message: str | None = None
 
@@ -37,29 +36,59 @@ class ParsedCommand:
 
 
 class CommandParser:
-    """Strict parser for configured `!hc version <alias>` command."""
+    """Strict parser for configured commands."""
 
     def __init__(
         self,
         *,
         version_command_text: str,
         help_command_text: str,
+        book_command_text: str,
+        book_status_command_text: str,
+        unbook_command_text: str,
+        unbook_all_command_text: str,
         environments: dict[str, EnvironmentConfig],
     ) -> None:
-        normalized_version_command = _normalize_spaces(version_command_text)
-        if not normalized_version_command:
+        self.version_command_text = _normalize_spaces(version_command_text)
+        if not self.version_command_text:
             raise ValueError("commands.hc_version must be a non-empty string")
-        normalized_help_command = _normalize_spaces(help_command_text)
-        if not normalized_help_command:
+        self.help_command_text = _normalize_spaces(help_command_text)
+        if not self.help_command_text:
             raise ValueError("commands.hc_help must be a non-empty string")
+        self.book_command_text = _normalize_spaces(book_command_text)
+        if not self.book_command_text:
+            raise ValueError("commands.book must be a non-empty string")
+        self.book_status_command_text = _normalize_spaces(book_status_command_text)
+        if not self.book_status_command_text:
+            raise ValueError("commands.book_status must be a non-empty string")
+        self.unbook_command_text = _normalize_spaces(unbook_command_text)
+        if not self.unbook_command_text:
+            raise ValueError("commands.unbook must be a non-empty string")
+        self.unbook_all_command_text = _normalize_spaces(unbook_all_command_text)
+        if not self.unbook_all_command_text:
+            raise ValueError("commands.unbook_all must be a non-empty string")
 
-        self.command_text = normalized_version_command
-        self.command_tokens = normalized_version_command.split(" ")
+        self.command_text = self.version_command_text  # Backward-compatible alias.
+        self.command_tokens = self.version_command_text.split(" ")
         self.command_prefix = self.command_tokens[0]
-        self.help_command_text = normalized_help_command
-        self.help_command_tokens = normalized_help_command.split(" ")
-        if self.help_command_tokens[0] != self.command_prefix:
-            raise ValueError("commands.hc_help must use the same command prefix as commands.hc_version")
+        self.help_command_tokens = self.help_command_text.split(" ")
+        self.book_command_tokens = self.book_command_text.split(" ")
+        self.book_status_command_tokens = self.book_status_command_text.split(" ")
+        self.unbook_command_tokens = self.unbook_command_text.split(" ")
+        self.unbook_all_command_tokens = self.unbook_all_command_text.split(" ")
+
+        if self.book_status_command_tokens[0] != self.book_command_tokens[0]:
+            raise ValueError("commands.book_status must use the same command prefix as commands.book")
+        if self.unbook_all_command_tokens[0] != self.unbook_command_tokens[0]:
+            raise ValueError("commands.unbook_all must use the same command prefix as commands.unbook")
+
+        self.command_prefixes = {
+            self.command_prefix,
+            self.help_command_tokens[0],
+            self.book_command_tokens[0],
+            self.unbook_command_tokens[0],
+            self.unbook_all_command_tokens[0],
+        }
         self.environments = dict(environments)
 
     @classmethod
@@ -68,6 +97,10 @@ class CommandParser:
         return cls(
             version_command_text=config.commands.hc_version,
             help_command_text=config.commands.hc_help,
+            book_command_text=config.commands.book,
+            book_status_command_text=config.commands.book_status,
+            unbook_command_text=config.commands.unbook,
+            unbook_all_command_text=config.commands.unbook_all,
             environments=config.environments,
         )
 
@@ -92,7 +125,7 @@ class CommandParser:
             return None
 
         tokens = normalized_text.split(" ")
-        if not tokens or tokens[0] != self.command_prefix:
+        if not tokens or tokens[0] not in self.command_prefixes:
             return None
 
         if tokens == self.help_command_tokens:
@@ -101,15 +134,81 @@ class CommandParser:
                 command=self.help_command_text,
                 alias="",
                 url=None,
+                duration=None,
                 environment_name=None,
                 error_message=None,
             )
 
-        # Strict PoC: exact command tokens + exactly one alias token.
-        if len(tokens) != len(self.command_tokens) + 1:
-            return None
+        # !book status <alias>
+        if tokens[: len(self.book_status_command_tokens)] == self.book_status_command_tokens:
+            if len(tokens) > len(self.book_status_command_tokens) + 1:
+                return None
+            alias = tokens[len(self.book_status_command_tokens)] if len(tokens) > len(
+                self.book_status_command_tokens
+            ) else ""
+            return ParsedCommand(
+                kind="book_status",
+                command=self.book_status_command_text,
+                alias=alias,
+                url=None,
+                duration=None,
+                environment_name=None,
+                error_message=None,
+            )
 
+        # !unbook all
+        if tokens == self.unbook_all_command_tokens:
+            return ParsedCommand(
+                kind="unbook_all",
+                command=self.unbook_all_command_text,
+                alias="all",
+                url=None,
+                duration=None,
+                environment_name=None,
+                error_message=None,
+            )
+
+        # !unbook <alias>
+        if tokens[: len(self.unbook_command_tokens)] == self.unbook_command_tokens:
+            if len(tokens) > len(self.unbook_command_tokens) + 1:
+                return None
+            alias = tokens[len(self.unbook_command_tokens)] if len(tokens) > len(
+                self.unbook_command_tokens
+            ) else ""
+            return ParsedCommand(
+                kind="unbook",
+                command=self.unbook_command_text,
+                alias=alias,
+                url=None,
+                duration=None,
+                environment_name=None,
+                error_message=None,
+            )
+
+        # !book <alias> <time>
+        if tokens[: len(self.book_command_tokens)] == self.book_command_tokens:
+            if len(tokens) > len(self.book_command_tokens) + 2:
+                return None
+            alias = tokens[len(self.book_command_tokens)] if len(tokens) > len(
+                self.book_command_tokens
+            ) else ""
+            duration = tokens[len(self.book_command_tokens) + 1] if len(tokens) > len(
+                self.book_command_tokens
+            ) + 1 else ""
+            return ParsedCommand(
+                kind="book",
+                command=self.book_command_text,
+                alias=alias,
+                url=None,
+                duration=duration,
+                environment_name=None,
+                error_message=None,
+            )
+
+        # !hc version <alias>
         if tokens[: len(self.command_tokens)] != self.command_tokens:
+            return None
+        if len(tokens) != len(self.command_tokens) + 1:
             return None
 
         alias = tokens[-1]
@@ -120,6 +219,7 @@ class CommandParser:
                 command=self.command_text,
                 alias=alias,
                 url=None,
+                duration=None,
                 environment_name=None,
                 error_message=f"Unknown environment alias: {alias}",
             )
@@ -129,6 +229,7 @@ class CommandParser:
             command=self.command_text,
             alias=alias,
             url=environment.url,
+            duration=None,
             environment_name=environment.name or alias,
             error_message=None,
         )

@@ -1,6 +1,6 @@
 """Minimal Rocket.Chat REST client for posting bot replies.
 
-Focused PoC scope:
+Focused project scope:
 - post a thread reply under the original command message
 - provide a tiny normal message helper for future use
 """
@@ -142,7 +142,7 @@ async def post_thread_reply(
     *,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
 ) -> None:
-    """Convenience helper for PoC flow: load config and post thread reply."""
+    """Convenience helper: load config and post thread reply."""
     client = RocketChatRestClient.from_config_file(config_path)
     await client.post_thread_reply(room_id=room_id, thread_message_id=thread_message_id, text=text)
 

@@ -14,7 +14,11 @@ rocketchat:
 
 commands:
   hc_version: "!hc version"
-  hc_help: "!hc help"
+  hc_help: "!help"
+  book: "!book"
+  book_status: "!book status"
+  unbook: "!unbook"
+  unbook_all: "!unbook all"
 
 help:
   template: |
@@ -24,13 +28,22 @@ help:
     Available aliases:
     {{aliases}}
 
+messages:
+  booking_success: "{{env_name}} is booked by {{username}} for another {{remaining_time}}."
+  booking_busy: "{{env_name}} is busy. Remaining: {{remaining_time}}."
+  booking_free: "{{env_name}} is free."
+  unbooking_success: "{{env_name}} unbooked by {{username}}."
+  unbooking_all_success: "All environments are successfully unbooked."
+  incorrect_alias: "Incorrect alias: {{env_name}}."
+  incorrect_or_missing_time: "Incorrect or missing time."
+
 environments:
   production:
     name: "Production"
-    url: "https://prod.example.com/healthcheck"
+    url: "https://prod.example.com/_hc"
   staging:
     name: "Staging"
-    url: "https://staging.example.com/healthcheck"
+    url: "https://staging.example.com/_hc"
 
 database:
   sqlite_path: "data/bot.db"

@@ -2,7 +2,7 @@
 
 Abstraction layer:
 - handles websocket/DDP connect/auth/subscribe details
-- emits only parsed `!hc version <alias>` command events to a handler
+- emits command-candidate message events to a handler
 """
 
 from __future__ import annotations
@@ -44,13 +44,14 @@ class IncomingMessage:
     message_id: str
     room_id: str
     sender_id: str
+    sender_username: str
     text: str
     thread_message_id: str | None = None
 
 
 @dataclass(slots=True)
 class HcCommandEvent:
-    """Command-candidate message event for `!hc ...` commands."""
+    """Command-candidate message event."""
 
     message: IncomingMessage
 
@@ -70,6 +71,7 @@ class RocketChatRealtimeListener:
         room_ids: list[str],
         ignore_own_messages: bool = True,
         hc_version_command: str = "!hc version",
+        command_prefixes: list[str] | None = None,
         reconnect_delay_seconds: float = 3.0,
     ) -> None:
         self.websocket_url = websocket_url.strip()
@@ -78,7 +80,15 @@ class RocketChatRealtimeListener:
         self.room_ids = [room.strip() for room in room_ids if isinstance(room, str) and room.strip()]
         self.ignore_own_messages = ignore_own_messages
         self.hc_version_command = hc_version_command.strip()
-        self.command_prefix = self.hc_version_command.split(" ")[0] if self.hc_version_command else ""
+        if command_prefixes is None:
+            resolved_prefixes = [self.hc_version_command.split(" ")[0]] if self.hc_version_command else []
+        else:
+            resolved_prefixes = []
+            for prefix in command_prefixes:
+                normalized = prefix.strip() if isinstance(prefix, str) else ""
+                if normalized and normalized not in resolved_prefixes:
+                    resolved_prefixes.append(normalized)
+        self.command_prefixes = resolved_prefixes
         self.reconnect_delay_seconds = reconnect_delay_seconds
 
         if not self.websocket_url:
@@ -91,8 +101,8 @@ class RocketChatRealtimeListener:
             raise RocketChatRealtimeConfigError("ignore_own_messages must be a boolean")
         if not self.hc_version_command:
             raise RocketChatRealtimeConfigError("commands.hc_version must be configured")
-        if not self.command_prefix:
-            raise RocketChatRealtimeConfigError("commands.hc_version must start with a command prefix")
+        if not self.command_prefixes:
+            raise RocketChatRealtimeConfigError("At least one command prefix must be configured")
         if not self.room_ids:
             raise RocketChatRealtimeConfigError(
                 "No room IDs configured. Set rocketchat.room_filters for realtime subscription."
@@ -119,6 +129,14 @@ class RocketChatRealtimeListener:
             room_ids=cfg.rocketchat.room_filters,
             ignore_own_messages=cfg.rocketchat.ignore_own_messages,
             hc_version_command=cfg.commands.hc_version,
+            command_prefixes=[
+                cfg.commands.hc_version.split(" ")[0],
+                cfg.commands.hc_help.split(" ")[0],
+                cfg.commands.book.split(" ")[0],
+                cfg.commands.book_status.split(" ")[0],
+                cfg.commands.unbook.split(" ")[0],
+                cfg.commands.unbook_all.split(" ")[0],
+            ],
         )
 
     async def run_forever(self, handler: CommandHandler) -> None:
@@ -279,7 +297,7 @@ class RocketChatRealtimeListener:
         if message.thread_message_id is not None:
             return None
 
-        if not _starts_with_command_prefix(message.text, self.command_prefix):
+        if not _starts_with_any_command_prefix(message.text, self.command_prefixes):
             return None
 
         if self._is_seen_command_message(message.message_id):
@@ -323,24 +341,31 @@ def _extract_message(fields: dict[str, Any]) -> IncomingMessage | None:
 
     user_payload = message_payload.get("u")
     sender_id = None
+    sender_username = None
     if isinstance(user_payload, dict):
         sender_id = _as_non_empty_string(user_payload.get("_id"))
+        sender_username = _as_non_empty_string(user_payload.get("username"))
+        if sender_username is None:
+            sender_username = _as_non_empty_string(user_payload.get("name"))
+    if sender_username is None:
+        sender_username = sender_id
 
-    if not message_id or not room_id or not sender_id or not text:
+    if not message_id or not room_id or not sender_id or not sender_username or not text:
         return None
 
     return IncomingMessage(
         message_id=message_id,
         room_id=room_id,
         sender_id=sender_id,
+        sender_username=sender_username,
         text=text,
         thread_message_id=thread_message_id,
     )
 
 
-def _starts_with_command_prefix(text: str, command_prefix: str) -> bool:
+def _starts_with_any_command_prefix(text: str, command_prefixes: list[str]) -> bool:
     text_tokens = text.split()
-    return bool(text_tokens) and text_tokens[0] == command_prefix
+    return bool(text_tokens) and text_tokens[0] in command_prefixes
 
 
 def _is_subscribed_response(payload: dict[str, Any], sub_id: str) -> bool:
