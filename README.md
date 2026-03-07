@@ -33,6 +33,8 @@ Minimal Python bot for Rocket.Chat.
 - No metrics/monitoring
 - No retries/circuit breaker for `healthcheck URL` requests
 - No advanced permission model
+- No dm support
+- Can't compare versions
 
 ## Project structure
 
@@ -171,15 +173,15 @@ python -m app.main config/bot_config.yaml
 ```
 
 ```text
-!book t4 2h
+!book test1 2h
 ```
 
 ```text
-!book status t4
+!book status test1
 ```
 
 ```text
-!unbook t4
+!unbook test1
 ```
 
 ```text
@@ -210,7 +212,7 @@ Available aliases:
 Successful reply format:
 
 ```text
-Environment: Test
+Environment: Test 1
 Branch: branch
 Commit: hash
 [Healthcheck link](https://example.com/_hc)
@@ -219,7 +221,7 @@ Commit: hash
 If tag exists:
 
 ```text
-Environment: Test
+Environment: Test 1
 Branch: branch
 Commit: hash
 Tag: v1.2.3
