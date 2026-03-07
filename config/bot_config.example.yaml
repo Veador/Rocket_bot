@@ -1,0 +1,41 @@
+# Example configuration for local setup.
+# 1) Copy values into config/bot_config.yaml
+# 2) Export token env var before starting the bot:
+#    export ROCKETCHAT_BOT_AUTH_TOKEN="<your-token>"
+
+rocketchat:
+  base_url: "https://chat.example.com"
+  user_id: "BOT_USER_ID_FROM_ROCKETCHAT"
+  auth_token_env: "ROCKETCHAT_BOT_AUTH_TOKEN"
+  ignore_own_messages: true
+  websocket_url: "wss://chat.example.com/websocket"
+  room_filters:
+    - "GENERAL_ROOM_ID"
+
+commands:
+  hc_version: "!hc version"
+  hc_help: "!hc help"
+
+help:
+  template: |
+    Available commands:
+    {{commands}}
+
+    Available aliases:
+    {{aliases}}
+
+environments:
+  production:
+    name: "Production"
+    url: "https://prod.example.com/_hc"
+  staging:
+    name: "Staging"
+    url: "https://staging.example.com/_hc"
+  # Backward-compatible legacy form is also supported:
+  # legacy: "https://legacy.example.com/_hc"
+
+database:
+  sqlite_path: "data/bot.db"
+
+logging:
+  level: "INFO"

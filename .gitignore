@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+
+# Local database
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Local config with secrets
+config/bot_config.yaml
+.env
+
+# macOS / editor
+.DS_Store
+.vscode/
+
+# Scripts
+scripts/
