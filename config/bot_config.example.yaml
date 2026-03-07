@@ -27,12 +27,10 @@ help:
 environments:
   production:
     name: "Production"
-    url: "https://prod.example.com/_hc"
+    url: "https://prod.example.com/healthcheck"
   staging:
     name: "Staging"
-    url: "https://staging.example.com/_hc"
-  # Backward-compatible legacy form is also supported:
-  # legacy: "https://legacy.example.com/_hc"
+    url: "https://staging.example.com/healthcheck"
 
 database:
   sqlite_path: "data/bot.db"
