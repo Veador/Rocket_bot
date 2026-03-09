@@ -33,7 +33,7 @@ DEFAULT_BOOKING_SUCCESS_TEMPLATE = (
     "Environment {{env_name}} is booked by {{username}} for another {{remaining_time}}."
 )
 DEFAULT_BOOKING_BUSY_TEMPLATE = (
-    "Environment {{env_name}} is busy. Remaining time: {{remaining_time}}."
+    "{{env_name}} занят пользователем {{username}}. Осталось: {{remaining_time}}"
 )
 DEFAULT_BOOKING_FREE_TEMPLATE = "Environment {{env_name}} is free."
 DEFAULT_UNBOOKING_SUCCESS_TEMPLATE = "Environment {{env_name}} was unbooked by {{username}}."

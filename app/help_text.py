@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from app.config import EnvironmentConfig
+from app.template_renderer import render_template
 
 
 def build_commands_list(
@@ -61,9 +62,10 @@ def render_help_message(
         unbook_all_command=unbook_all_command,
     )
     aliases_block = build_aliases_list(environments)
-
-    return (
-        template.replace("{{commands}}", commands_block)
-        .replace("{{aliases}}", aliases_block)
-        .strip()
+    return render_template(
+        template,
+        {
+            "commands": commands_block,
+            "aliases": aliases_block,
+        },
     )

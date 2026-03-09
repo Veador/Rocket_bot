@@ -30,7 +30,7 @@ help:
 
 messages:
   booking_success: "{{env_name}} is booked by {{username}} for another {{remaining_time}}."
-  booking_busy: "{{env_name}} is busy. Remaining: {{remaining_time}}."
+  booking_busy: "{{env_name}} занят пользователем {{username}}. Осталось: {{remaining_time}}"
   booking_free: "{{env_name}} is free."
   unbooking_success: "{{env_name}} unbooked by {{username}}."
   unbooking_all_success: "All environments are successfully unbooked."

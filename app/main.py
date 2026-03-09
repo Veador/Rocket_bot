@@ -31,6 +31,7 @@ from app.help_text import render_help_message
 from app.rc_rest import RocketChatRestClient, RocketChatRestError
 from app.rc_realtime import HcCommandEvent, IncomingMessage, RocketChatRealtimeListener
 from app.storage import HealthResultRepository
+from app.template_renderer import render_template
 
 logger = logging.getLogger(__name__)
 
@@ -278,33 +279,15 @@ def _format_booking_reply(
 
     env_name = result.env_name or fallback_alias or "-"
     duration_text = (result.remaining_time or "").strip()
-    return _render_message_template(
-        template=template,
-        env_name=env_name,
-        time=duration_text,
-        username=result.username or "",
-        remaining_time=duration_text,
-        count=str(result.affected_count or 0),
-    )
-
-
-def _render_message_template(
-    *,
-    template: str,
-    env_name: str,
-    time: str,
-    username: str,
-    remaining_time: str,
-    count: str,
-) -> str:
-    """Render simple `{{placeholder}}` tokens without external template engine."""
-    return (
-        template.replace("{{env_name}}", env_name)
-        .replace("{{time}}", time)
-        .replace("{{username}}", username)
-        .replace("{{remaining_time}}", remaining_time)
-        .replace("{{count}}", count)
-        .strip()
+    return render_template(
+        template,
+        {
+            "env_name": env_name,
+            "time": duration_text,
+            "username": result.username or "",
+            "remaining_time": duration_text,
+            "count": str(result.affected_count or 0),
+        },
     )
 
 

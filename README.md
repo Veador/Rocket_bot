@@ -131,14 +131,33 @@ Booking templates example:
 
 ```yaml
 messages:
-  booking_success: "{{env_name}} is booked by {{username}} for {{remaining_time}}."
-  booking_busy: "{{env_name}} is busy. Remaining: {{remaining_time}}."
+  booking_success: "{{env_name}} is booked by {{username}} for another {{remaining_time}}."
+  booking_busy: "{{env_name}} booked by {{username}}. Remaining time: {{remaining_time}}"
   booking_free: "{{env_name}} is free."
   unbooking_success: "{{env_name}} unbooked by {{username}}."
-  unbooking_all_success: "All environments are successfully unbooked."
+  unbooking_all_success: "All environments are successfully unbooked. Number of affected envs: {{count}}"
   incorrect_alias: "Incorrect alias: {{env_name}}."
   incorrect_or_missing_time: "Incorrect or missing time."
 ```
+
+## Template variables
+
+Configurable templates are stored in `config/bot_config.yaml` and support placeholders in
+the format `{{variable_name}}`.
+
+Template rendering is centralized and consistent across help/booking messages:
+- known variables are replaced from context
+- missing variables are left as-is (placeholder text remains unchanged)
+- implementation is shared in `app/template_renderer.py`
+
+Currently supported variables:
+- `{{env_name}}` — human-readable environment name from config (or fallback alias)
+- `{{username}}` — Rocket.Chat username of the relevant user
+- `{{remaining_time}}` — human-readable remaining booking duration
+- `{{time}}` — human-readable booking duration value (alias for duration output)
+- `{{count}}` — affected environments count for `!unbook all` (meaningful for `messages.unbooking_all_success`)
+- `{{commands}}` — generated list of supported commands in help template
+- `{{aliases}}` — generated list of configured aliases in help template
 
 ## Required environment variables
 
