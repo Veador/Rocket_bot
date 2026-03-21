@@ -76,13 +76,6 @@ source .venv/bin/activate
 
 # 3) Install project in editable mode (installs all dependencies from pyproject.toml)
 python -m pip install -e .
-```
-
-Windows PowerShell activation:
-
-```powershell
-.venv\Scripts\Activate.ps1
-```
 
 ## Configure `bot_config.yaml`
 
