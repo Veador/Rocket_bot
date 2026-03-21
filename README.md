@@ -65,10 +65,23 @@ data/
 
 ## Install dependencies
 
+From the repository root:
+
 ```bash
+# 1) Create virtual environment
 python3.12 -m venv .venv
+
+# 2) Activate virtual environment (macOS/Linux)
 source .venv/bin/activate
-pip install -e .
+
+# 3) Install project in editable mode (installs all dependencies from pyproject.toml)
+python -m pip install -e .
+```
+
+Windows PowerShell activation:
+
+```powershell
+.venv\Scripts\Activate.ps1
 ```
 
 ## Configure `bot_config.yaml`
